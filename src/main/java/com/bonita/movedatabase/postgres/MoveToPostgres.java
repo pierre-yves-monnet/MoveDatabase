@@ -3,10 +3,12 @@ package com.bonita.movedatabase.postgres;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -21,22 +23,50 @@ public class MoveToPostgres {
      * Le nom de la table est le nome du fichier csv.
      * Quand il y a des blob il faut faire la decode
      * INSERT INTO TABLE VALUES(1,'ERRER',33, decode('2556645646456464646456456456456456456546','hex'))
+     * 
+     * 
+     * Dataset : https://drive.google.com/drive/folders/1joDGFwHjjrT-K4JdnY__WuESBMRiW6PD?usp=sharing
      */
 
     public static  void main(String args[]) {
-        String directory = args.length>0 ? args[0] : null;
+        // check options
+        System.out.println("Usage : [-filter OneFile.csv] [-decoding UTF-16] Directory");
+        int i=0;
+        String filterFile=null;
+        String encoding=null;
+        String directory=null;
+        while (i<args.length)
+        {
+            if (args[i].equals("-filter")) {
+                filterFile = args.length>i+1 ? args[i+1] : null;
+                i+=2;
+            }
+            // like "UTF16"
+
+           else if (args[i].equals("-encoding")) {
+               encoding = args.length>i+1 ? args[i+1] : null;
+               i+=2;
+           }
+           else { 
+               directory= args[ i ];
+               i++;
+           }
+                
+        }
         File fileDirectory = new File(directory);
         if (!fileDirectory.exists()) {
             System.out.println("directory [" + directory + "] not exist");
             return;
         }
         for (String file : fileDirectory.list()) {
-            manageOneFile(fileDirectory, file);
+            if (filterFile != null && ! filterFile.equals(file))
+                continue;
+            manageOneFile(fileDirectory, file, encoding);
         }
 
     }
 
-    private static void manageOneFile(File directory, String sourceFileName) {
+    private static void manageOneFile(File directory, String sourceFileName, String encoding) {
 
         if (! sourceFileName.toLowerCase().endsWith(".csv")) {
             System.out.println("file [" + sourceFileName + "] does not end with .csv, ignore it");
@@ -58,11 +88,15 @@ public class MoveToPostgres {
         System.out.println("Begin of [" + sourceFileName+"]");
         int lineCounter = 0;
         try {
-            br = new BufferedReader(new FileReader(sourceFile));
+            if (encoding!=null)
+                br = new BufferedReader(new InputStreamReader(new FileInputStream(sourceFile),encoding));
+            else
+                br = new BufferedReader(new FileReader(sourceFile));
             // read the header
             String headerSt = br.readLine();
             String[] header = headerSt.split(cvsSplitBy);
-
+            if (lineCounter % 100 ==0)
+                System.out.print(".");
             // create the output 
             writer = new FileWriter(sqlFile);
             sqlWriter = new BufferedWriter(writer);
@@ -84,14 +118,29 @@ public class MoveToPostgres {
                     listColumns += col;
                     if (value == null)
                         listValues += " null ";
-                    else if (isBlob(tableName, col, value))
-                        listValues += "decode('" + value + "','hex')";
+                    else if (isBlob(tableName, col, value)) {
+                        
+                        value = value.replaceAll("\'", "''");
+                        if (value.trim().length()==0)
+                            listValues+= " null ";
+                        else if (value.startsWith("<?xml version="))
+                            listValues+= "'"+value+"'";
+                        else
+                            listValues += "decode('" + value + "','hex')";
+                    }
                     else if (isBoolean(tableName, col, value))
                         listValues += (value.equals("1")? "true" : "false");
-                    else if (isNumeric(tableName, col, value))
-                        listValues += value;
-                    else
+                    else if (isNumeric(tableName, col, value)) {
+                        // attention, value may be a empty value (=> Transform to null then)
+                        if (value.trim().length()==0)
+                            listValues += "null";
+                        else
+                            listValues += value;
+                    }
+                    else {
+                        value = value.replaceAll("\'", "''");
                         listValues += "'" + value + "'";
+                    }
 
                 }
 
@@ -100,6 +149,7 @@ public class MoveToPostgres {
                 sqlWriter.write(sqlRequest);
 
             }
+            sqlWriter.flush();
         } catch (FileNotFoundException e) {
             e.printStackTrace();
         } catch (IOException e) {
@@ -107,6 +157,7 @@ public class MoveToPostgres {
         } finally {
             if (writer != null) {
                 try {
+                    writer.flush();
                     writer.close();
                 } catch (IOException e) {
                     e.printStackTrace();
@@ -152,7 +203,7 @@ public class MoveToPostgres {
 
     private static boolean isBlob(String tableName, String col, String value) {
         String code = tableName.toLowerCase() + "#" + col.toLowerCase();
-        if (listBlobs.contains(code))
+        if (listBlobs.contains(code.toLowerCase()))
             return true;
 
         if (value.length() > 1000)
@@ -173,6 +224,12 @@ public class MoveToPostgres {
             "arch_flownode_instance#triggeredbyevent",
             "arch_flownode_instance#interrupting",
             
+            "arch_data_instance#transientdata",
+            "arch_data_instance#booleanvalue",
+            
+            "data_instance#transientdata",
+            "data_instance#booleanvalue",
+            
             "flownode_instance#stable",
             "flownode_instance#sequential",
             "flownode_instance#aborting",
@@ -184,11 +241,6 @@ public class MoveToPostgres {
             "message_instance#handled",
             "report#provided",
             "command#issytem",
-            "arch_data_instance#transientdata",
-            "arch_data_instance#booleanvalue",
-            
-            "data_instance#transientdata",
-            "data_instance#booleanvalue",
             
             "user_#enable",
             "user_contactinfo#personal",
@@ -215,10 +267,10 @@ public class MoveToPostgres {
      * return true if the column is in the list of known numeric column, or if we can transform the value to a double
      */
     public static List<String> listNumeric = Arrays.asList("document#content");
-    public static List<String> listColsNumeric = Arrays.asList("tenantid", "tenant_id", "id", "containerid", "intvalue", "longvalue", "doublevalue", "definitionid", "userid");
+    public static List<String> listColsNumeric = Arrays.asList("tenantid", "tenant_id", "id", "containerid", "intvalue", "longvalue", "doublevalue", "floatvalue", "definitionid", "archiveDate", "userid", "sourceObjectId");
 
     private static boolean isNumeric(String tableName, String col, String value) {
-        if (listColsNumeric.contains(col))
+        if (listColsNumeric.contains(col.toLowerCase()))
             return true;
         String code = tableName.toLowerCase() + "#" + col.toLowerCase();
         if (listNumeric.contains(code))
