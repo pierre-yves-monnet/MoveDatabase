@@ -44,7 +44,7 @@ public class MoveToPostgres {
         System.out.println("decoding : use UTF-16 or DETECT to let the program detect the correct encoding to use. Defalt is UTF-8");
         System.out.println("separator : Separator used in the CSV. If DETECT is use, then the header is used to detect the separator");
         System.out.println("multilines : A record may be store in multiple line. REGISTER (command.csv and ) by default");
-        System.out.println("Version 1.1 (Dec 26 2019)");        
+        System.out.println("Version 1.2 (Dec 26 2019)");        
         int i=0;
         MoveToPostgres moveToPostgres = new MoveToPostgres();
         while (i<args.length)
