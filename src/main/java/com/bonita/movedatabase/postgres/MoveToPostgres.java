@@ -29,7 +29,7 @@ public class MoveToPostgres {
      * 
      * get-content .\arch_data_instance.txt -encoding UTF8 |select-object -first 10 > output.txt
      */
-    String filterFile=null;
+    List<String> filterFiles=null;
     String encoding=null;
     String directory=null;
     File fileDirectory;
@@ -44,13 +44,14 @@ public class MoveToPostgres {
         System.out.println("decoding : use UTF-16 or DETECT to let the program detect the correct encoding to use. Defalt is UTF-8");
         System.out.println("separator : Separator used in the CSV. If DETECT is use, then the header is used to detect the separator");
         System.out.println("multilines : A record may be store in multiple line. REGISTER (command.csv and ) by default");
-                
+        System.out.println("Version 1.1 (Dec 26 2019)");        
         int i=0;
         MoveToPostgres moveToPostgres = new MoveToPostgres();
         while (i<args.length)
         {
             if (args[i].equals("-filter")) {
-                moveToPostgres.filterFile = args.length>i+1 ? args[i+1] : null;
+                String filterFile = args.length>i+1 ? args[i+1] : null;
+                moveToPostgres.filterFiles= Arrays.asList( filterFile.split(",") );
                 i+=2;
             }
             // like "UTF16"
@@ -83,7 +84,7 @@ public class MoveToPostgres {
             return;
         }
         for (String file : moveToPostgres.fileDirectory.list()) {
-            if (moveToPostgres.filterFile != null && ! moveToPostgres.filterFile.equals(file))
+            if (moveToPostgres.filterFiles != null && ! moveToPostgres.filterFiles.contains(file))
                 continue;
             moveToPostgres.manageOneFile(file);
         }
@@ -99,7 +100,8 @@ public class MoveToPostgres {
             System.out.println("file [" + sourceFileName + "] does not end with .csv, ignore it");
             return;
         }
-
+        long beginTime = System.currentTimeMillis();
+        
         boolean recordsOnMultiLines = false;
         if ("ALL".equals(multilinesPolicy) || ("REGISTER".equals(multilinesPolicy) && listMultilinesFile.contains(sourceFileName.toLowerCase())))
                 recordsOnMultiLines=true;
@@ -145,7 +147,10 @@ public class MoveToPostgres {
 
             while ((line = readNextLine(br, recordsOnMultiLines, separator, header.length )) != null) {
                 if (lineCounter % 100 ==0) {
-                    System.out.print(".");
+                    if (lineCounter % 10000 ==0 && lineCounter>0)
+                        System.out.print("# "+lineCounter+" #");
+                    else
+                        System.out.print(".");
                     sqlWriter.flush();
                 }
             
@@ -213,8 +218,9 @@ public class MoveToPostgres {
                 }
             }
         }
-
-        System.out.println("End of [" + sourceFileName + "] manage " + lineCounter+" records ");
+        if (lineCounter>100)
+            System.out.println("");
+        System.out.println("End of [" + sourceFileName + "] manage " + lineCounter+" records in ("+(System.currentTimeMillis()-beginTime)+" ms)");
     }
 
     
@@ -254,10 +260,19 @@ public class MoveToPostgres {
     {
         if (currentLine==null)
             return true;
+        
+        
         if (currentLine.startsWith(" "))
             return false;
-        if (currentLine.indexOf(separator) == -1)
+        // attention, the separator may have first a \, like \| to be used correclty by the split function. In that case, we have to search without this character
+        /*
+        if (separator.startsWith("\\")) {
+            if (currentLine.indexOf(separator.substring(1)) == -1)
+                return false;
+        }
+        else if (currentLine.indexOf(separator) == -1)
             return false;
+            */
         
         // an another use case : if the currentBuffer + currentLine <= numberExpectedField, then we considere this line is part of the current record
         // use case 
@@ -308,8 +323,8 @@ public class MoveToPostgres {
         if (listBlobs.contains(code.toLowerCase()))
             return true;
 
-        if (value.length() > 1000)
-            return true;
+        //if (value.length() > 1000)
+        //    return true;
         return false;
     }
     /**
@@ -342,7 +357,13 @@ public class MoveToPostgres {
             "message_instance#locked",
             "message_instance#handled",
             "report#provided",
-            "command#issytem",
+            
+            "command#issystem",
+            
+            "qrtz_job_details#is_durable",
+            "qrtz_job_details#is_nonconcurrent",
+            "qrtz_job_details#is_update_data",
+            "qrtz_job_details#requests_recovery",
             
             "user_#enable",
             "user_contactinfo#personal",
@@ -369,7 +390,7 @@ public class MoveToPostgres {
      * return true if the column is in the list of known numeric column, or if we can transform the value to a double
      */
     public static List<String> listNumeric = Arrays.asList("document#content");
-    public static List<String> listColsNumeric = Arrays.asList("tenantid", "tenant_id", "id", "containerid", "intvalue", "longvalue", "doublevalue", "floatvalue", "definitionid", "archiveDate", "userid", "sourceObjectId");
+    public static List<String> listColsNumeric = Arrays.asList("tenantid", "tenant_id", "id", "containerid", "intvalue", "longvalue", "doublevalue", "floatvalue", "definitionid", "archiveDate", "userid", "sourceObjectId", "pageid", "lastupdatedate","lastupdatedby");
 
     private  boolean isNumeric(String tableName, String col, String value) {
         if (listColsNumeric.contains(col.toLowerCase()))
@@ -394,7 +415,7 @@ public class MoveToPostgres {
         headerSt = headerSt.toLowerCase();
         for (int i=0;i<headerSt.length();i++)
         {
-            if ((headerSt.charAt( i ) >= '0' && headerSt.charAt( i ) <= '9') || (headerSt.charAt( i ) >= 'a' && headerSt.charAt( i ) <= 'z'))
+            if ((headerSt.charAt( i ) >= '0' && headerSt.charAt( i ) <= '9') || (headerSt.charAt( i ) >= 'a' && headerSt.charAt( i ) <= 'z') || headerSt.charAt( i )=='_')
                 continue;
             return "\\"+String.valueOf( headerSt.charAt( i ));
         }
