@@ -17,9 +17,9 @@ import java.util.Map;
 public class MoveToPostgres {
 
     /**
-     * 'bjectif du program java est de créer des fichiers .sql de la forme:
+     * 'bjectif du program java est de crï¿½er des fichiers .sql de la forme:
      * INSERT INTO TABLE VALUES(1,'ERRER',33)
-     * seulement pour les tables qui contiennent des données binaires.
+     * seulement pour les tables qui contiennent des donnï¿½es binaires.
      * Le nom de la table est le nome du fichier csv.
      * Quand il y a des blob il faut faire la decode
      * INSERT INTO TABLE VALUES(1,'ERRER',33, decode('2556645646456464646456456456456456456546','hex'))
